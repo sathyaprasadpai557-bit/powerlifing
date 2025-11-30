@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Powerlifting Competition Manager</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const WEIGHT_CATEGORIES = {
+          men: [
+            { name: '53kg', max: 53 },
+            { name: '59kg', max: 59 },
+            { name: '66kg', max: 66 },
+            { name: '74kg', max: 74 },
+            { name: '83kg', max: 83 },
+            { name: '93kg', max: 93 },
+            { name: '105kg', max: 105 },
+            { name: '120kg', max: 120 },
+            { name: '120kg+', max: Infinity }
+          ],
+          women: [
+            { name: '43kg', max: 43 },
+            { name: '47kg', max: 47 },
+            { name: '52kg', max: 52 },
+            { name: '57kg', max: 57 },
+            { name: '63kg', max: 63 },
+            { name: '69kg', max: 69 },
+            { name: '76kg', max: 76 },
+            { name: '84kg', max: 84 },
+            { name: '84kg+', max: Infinity }
+          ]
+        };
+
+        function PowerliftingCompetition() {
+          const [lifters, setLifters] = useState([]);
+          const [tab, setTab] = useState('entry');
+          const [gender, setGender] = useState('men');
+          const [name, setName] = useState('');
+          const [weight, setWeight] = useState('');
+          const [college, setCollege] = useState('');
+
+          useEffect(() => {
+            const saved = localStorage.getItem('lifters');
+            if (saved) {
+              try {
+                setLifters(JSON.parse(saved));
+              } catch (e) {
+                console.log('Could not load saved data');
+              }
+            }
+          }, []);
+
+          useEffect(() => {
+            if (lifters.length > 0) {
+              localStorage.setItem('lifters', JSON.stringify(lifters));
+            }
+          }, [lifters]);
+
+          const getCategoryForLifter = (lifterWeight, lifterGender) => {
+            const categories = WEIGHT_CATEGORIES[lifterGender];
+            return categories.find(cat => lifterWeight <= cat.max)?.name || categories[categories.length - 1].name;
+          };
+
+          const addLifter = () => {
+            if (name && weight && college) {
+              const newLifter = {
+                id: Date.now(),
+                name: name.trim(),
+                weight: parseFloat(weight),
+                college: college.trim(),
+                gender,
+                date: new Date().toLocaleDateString()
+              };
+              
+              const category = getCategoryForLifter(newLifter.weight, newLifter.gender);
+              
+              const existingInCategory = lifters.filter(l => 
+                l.college.toLowerCase() === newLifter.college.toLowerCase() &&
+                l.gender === newLifter.gender &&
+                getCategoryForLifter(l.weight, l.gender) === category
+              );
+              
+              if (existingInCategory.length >= 2) {
+                alert(`Error: ${newLifter.college} already has 2 lifters registered in the ${category} ${gender} category. Maximum 2 lifters per college per category allowed.`);
+                return;
+              }
+              
+              setLifters([...lifters, newLifter]);
+              setName('');
+              setWeight('');
+              setCollege('');
+            }
+          };
+
+          const getCategorizedLifters = () => {
+            const grouped = {};
+            const categories = WEIGHT_CATEGORIES[gender];
+            
+            categories.forEach(cat => {
+              grouped[cat.name] = [];
+            });
+
+            lifters.filter(l => l.gender === gender).forEach(lifter => {
+              const category = getCategoryForLifter(lifter.weight, lifter.gender);
+              if (grouped[category]) {
+                grouped[category].push(lifter);
+              }
+            });
+
+            return grouped;
+          };
+
+          const getLiftersByCollege = () => {
+            const grouped = {};
+            lifters.forEach(lifter => {
+              if (!grouped[lifter.college]) {
+                grouped[lifter.college] = [];
+              }
+              grouped[lifter.college].push(lifter);
+            });
+            return grouped;
+          };
+
+          const downloadCSV = (csv, filename) => {
+            try {
+              const BOM = '\uFEFF';
+              const csvContent = BOM + csv;
+              const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+              
+              const url = window.URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = filename;
+              
+              document.body.appendChild(link);
+              link.click();
+              
+              setTimeout(() => {
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+              }, 100);
+              
+              alert('CSV file downloaded successfully!');
+            } catch (error) {
+              console.error('Download error:', error);
+              alert('Error downloading file. Please try again.');
+            }
+          };
+
+          const exportCategoryReport = () => {
+            let csv = `Powerlifting Competition - Category Report (${gender.toUpperCase()})\n`;
+            csv += `Generated: ${new Date().toLocaleDateString()}\n\n`;
+            
+            const categorized = getCategorizedLifters();
+            
+            Object.entries(categorized).forEach(([category, liftersInCat]) => {
+              if (liftersInCat.length > 0) {
+                csv += `${category}\n`;
+                csv += 'S.No,Name,Weight(kg),College\n';
+                liftersInCat.forEach((l, idx) => {
+                  csv += `${idx + 1},${l.name},${l.weight},${l.college}\n`;
+                });
+                csv += `Total Lifters: ${liftersInCat.length}\n\n`;
+              }
+            });
+            
+            downloadCSV(csv, `category_report_${gender}.csv`);
+          };
+
+          const exportCollegeReport = () => {
+            let csv = 'Powerlifting Competition - College Report\n';
+            csv += `Generated: ${new Date().toLocaleDateString()}\n\n`;
+            
+            const byCollege = getLiftersByCollege();
+            
+            Object.entries(byCollege).sort().forEach(([college, liftersFromCollege]) => {
+              csv += `${college}\n`;
+              csv += 'S.No,Name,Weight(kg),Gender,Category\n';
+              liftersFromCollege.forEach((l, idx) => {
+                const category = getCategoryForLifter(l.weight, l.gender);
+                csv += `${idx + 1},${l.name},${l.weight},${l.gender},${category}\n`;
+              });
+              csv += `Total Lifters: ${liftersFromCollege.length}\n\n`;
+            });
+            
+            downloadCSV(csv, 'college_report.csv');
+          };
+
+          const deleteLifter = (id) => {
+            if (confirm('Are you sure you want to delete this lifter?')) {
+              setLifters(lifters.filter(l => l.id !== id));
+            }
+          };
+
+          const categorized = getCategorizedLifters();
+          const byCollege = getLiftersByCollege();
+
+          return (
+            <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 p-4">
+              <div className="max-w-7xl mx-auto">
+                <div className="bg-white rounded-xl shadow-2xl overflow-hidden">
+                  <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-8 text-white">
+                    <h1 className="text-4xl font-bold mb-2">Powerlifting Competition Manager</h1>
+                    <p className="text-blue-100">Manage and organize 200+ lifters by weight category and college</p>
+                  </div>
+
+                  <div className="flex border-b bg-gray-50">
+                    <button onClick={() => setTab('entry')} className={`flex-1 py-4 px-6 font-semibold transition ${tab === 'entry' ? 'border-b-4 border-blue-600 text-blue-600 bg-white' : 'text-gray-600 hover:text-gray-800'}`}>
+                      + Add Lifter
+                    </button>
+                    <button onClick={() => setTab('category')} className={`flex-1 py-4 px-6 font-semibold transition ${tab === 'category' ? 'border-b-4 border-blue-600 text-blue-600 bg-white' : 'text-gray-600 hover:text-gray-800'}`}>
+                      View by Category
+                    </button>
+                    <button onClick={() => setTab('college')} className={`flex-1 py-4 px-6 font-semibold transition ${tab === 'college' ? 'border-b-4 border-blue-600 text-blue-600 bg-white' : 'text-gray-600 hover:text-gray-800'}`}>
+                      View by College
+                    </button>
+                    <button onClick={() => setTab('all')} className={`flex-1 py-4 px-6 font-semibold transition ${tab === 'all' ? 'border-b-4 border-blue-600 text-blue-600 bg-white' : 'text-gray-600 hover:text-gray-800'}`}>
+                      All Lifters
+                    </button>
+                  </div>
+
+                  <div className="p-8">
+                    {tab === 'entry' && (
+                      <div className="max-w-2xl">
+                        <h2 className="text-2xl font-bold mb-6 text-gray-800">Add New Lifter</h2>
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">Gender</label>
+                            <select value={gender} onChange={(e) => setGender(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                              <option value="men">Men</option>
+                              <option value="women">Women</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">Lifter Name</label>
+                            <input value={name} onChange={(e) => setName(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && addLifter()} placeholder="Enter full name" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">Body Weight (kg)</label>
+                            <input type="number" value={weight} onChange={(e) => setWeight(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && addLifter()} placeholder="e.g., 72.5" step="0.1" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">College/Institution</label>
+                            <input value={college} onChange={(e) => setCollege(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && addLifter()} placeholder="Enter college name" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                          </div>
+                          <button onClick={addLifter} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition flex items-center justify-center gap-2">
+                            + Add Lifter (Total: {lifters.length})
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {tab === 'category' && (
+                      <div>
+                        <div className="flex justify-between items-center mb-6">
+                          <div>
+                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Lifters by Category ({gender.toUpperCase()})</h2>
+                            <p className="text-gray-600">Based on IPF standards</p>
+                          </div>
+                          <button onClick={exportCategoryReport} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition">
+                            📥 Export CSV
+                          </button>
+                        </div>
+                        
+                        <div className="mb-4">
+                          <button onClick={() => setGender('men')} className={`px-4 py-2 rounded-l-lg ${gender === 'men' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                            Men
+                          </button>
+                          <button onClick={() => setGender('women')} className={`px-4 py-2 rounded-r-lg ${gender === 'women' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                            Women
+                          </button>
+                        </div>
+
+                        <div className="space-y-6">
+                          {Object.entries(categorized).map(([category, liftersInCat]) => (
+                            <div key={category} className="border border-gray-200 rounded-lg p-6 hover:shadow-lg transition">
+                              <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-xl font-bold text-blue-600">{category}</h3>
+                                <span className="bg-blue-100 text-blue-800 px-4 py-2 rounded-full font-semibold">{liftersInCat.length} lifters</span>
+                              </div>
+                              {liftersInCat.length > 0 ? (
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-sm">
+                                    <thead className="bg-gray-100">
+                                      <tr>
+                                        <th className="px-4 py-2 text-left">Name</th>
+                                        <th className="px-4 py-2 text-left">Weight (kg)</th>
+                                        <th className="px-4 py-2 text-left">College</th>
+                                        <th className="px-4 py-2 text-center">Action</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {liftersInCat.map((lifter, idx) => {
+                                        const sameCollegeCount = liftersInCat.filter(l => 
+                                          l.college.toLowerCase() === lifter.college.toLowerCase()
+                                        ).length;
+                                        const isWarning = sameCollegeCount > 2;
+                                        
+                                        return (
+                                          <tr key={lifter.id} className={`border-t hover:bg-gray-50 ${isWarning ? 'bg-red-50' : ''}`}>
+                                            <td className="px-4 py-3">{idx + 1}. {lifter.name}</td>
+                                            <td className="px-4 py-3">{lifter.weight}</td>
+                                            <td className="px-4 py-3">
+                                              {lifter.college}
+                                              {isWarning && <span className="ml-2 text-red-600 text-xs font-bold">(⚠ Over Limit)</span>}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                              <button onClick={() => deleteLifter(lifter.id)} className="text-red-600 hover:text-red-800 transition">
+                                                🗑️
+                                              </button>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : (
+                                <p className="text-gray-500">No lifters in this category</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {tab === 'college' && (
+                      <div>
+                        <div className="flex justify-between items-center mb-6">
+                          <div>
+                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Lifters by College</h2>
+                            <p className="text-gray-600">Showing all lifters grouped by institution</p>
+                          </div>
+                          <button onClick={exportCollegeReport} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition">
+                            📥 Export CSV
+                          </button>
+                        </div>
+
+                        <div className="space-y-6">
+                          {Object.entries(byCollege).sort().map(([collegeItem, liftersFromCollege]) => (
+                            <div key={collegeItem} className="border border-gray-200 rounded-lg p-6 hover:shadow-lg transition">
+                              <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-xl font-bold text-indigo-600">{collegeItem}</h3>
+                                <span className="bg-indigo-100 text-indigo-800 px-4 py-2 rounded-full font-semibold">{liftersFromCollege.length} lifters</span>
+                              </div>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                  <thead className="bg-gray-100">
+                                    <tr>
+                                      <th className="px-4 py-2 text-left">Name</th>
+                                      <th className="px-4 py-2 text-left">Weight (kg)</th>
+                                      <th className="px-4 py-2 text-left">Gender</th>
+                                      <th className="px-4 py-2 text-left">Category</th>
+                                      <th className="px-4 py-2 text-center">Action</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {liftersFromCollege.map((lifter, idx) => (
+                                      <tr key={lifter.id} className="border-t hover:bg-gray-50">
+                                        <td className="px-4 py-3">{idx + 1}. {lifter.name}</td>
+                                        <td className="px-4 py-3">{lifter.weight}</td>
+                                        <td className="px-4 py-3"><span className="capitalize bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs font-semibold">{lifter.gender}</span></td>
+                                        <td className="px-4 py-3">{getCategoryForLifter(lifter.weight, lifter.gender)}</td>
+                                        <td className="px-4 py-3 text-center">
+                                          <button onClick={() => deleteLifter(lifter.id)} className="text-red-600 hover:text-red-800 transition">
+                                            🗑️
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {tab === 'all' && (
+                      <div>
+                        <h2 className="text-2xl font-bold text-gray-800 mb-6">All Registered Lifters</h2>
+                        <div className="bg-blue-50 p-4 rounded-lg mb-6">
+                          <p className="text-lg font-semibold text-blue-900">Total Lifters: <span className="text-2xl text-blue-600">{lifters.length}</span></p>
+                        </div>
+                        {lifters.length > 0 ? (
+                          <div className="overflow-x-auto">
+                            <table className="w-full">
+                              <thead className="bg-gray-800 text-white">
+                                <tr>
+                                  <th className="px-4 py-3 text-left">#</th>
+                                  <th className="px-4 py-3 text-left">Name</th>
+                                  <th className="px-4 py-3 text-left">Weight</th>
+                                  <th className="px-4 py-3 text-left">Gender</th>
+                                  <th className="px-4 py-3 text-left">Category</th>
+                                  <th className="px-4 py-3 text-left">College</th>
+                                  <th className="px-4 py-3 text-center">Action</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {lifters.map((lifter, idx) => (
+                                  <tr key={lifter.id} className="border-b hover:bg-gray-50">
+                                    <td className="px-4 py-3 font-semibold text-gray-700">{idx + 1}</td>
+                                    <td className="px-4 py-3">{lifter.name}</td>
+                                    <td className="px-4 py-3">{lifter.weight} kg</td>
+                                    <td className="px-4 py-3"><span className="capitalize bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs font-semibold">{lifter.gender}</span></td>
+                                    <td className="px-4 py-3">{getCategoryForLifter(lifter.weight, lifter.gender)}</td>
+                                    <td className="px-4 py-3">{lifter.college}</td>
+                                    <td className="px-4 py-3 text-center">
+                                      <button onClick={() => deleteLifter(lifter.id)} className="text-red-600 hover:text-red-800 transition">
+                                        🗑️
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <p className="text-gray-500 text-center py-8">No lifters registered yet</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-8 bg-white rounded-lg shadow p-6 text-gray-700">
+                  <h3 className="font-bold mb-3 text-gray-900">IPF Weight Categories:</h3>
+                  <div className="grid md:grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="font-semibold text-gray-900 mb-2">Men: 53, 59, 66, 74, 83, 93, 105, 120, 120+kg</p>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-900 mb-2">Women: 43, 47, 52, 57, 63, 69, 76, 84, 84+kg</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        ReactDOM.render(<PowerliftingCompetition />, document.getElementById('root'));
+    </script>
+</body>
+</html>
